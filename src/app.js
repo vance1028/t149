@@ -9,6 +9,13 @@ const lotsRouter = require('./routes/lots');
 const spacesRouter = require('./routes/spaces');
 const vehiclesRouter = require('./routes/vehicles');
 const sessionsRouter = require('./routes/sessions');
+const organizationsRouter = require('./routes/organizations');
+const ratePlansRouter = require('./routes/rate-plans');
+const holidaysRouter = require('./routes/holidays');
+const ownershipRulesRouter = require('./routes/ownership-rules');
+const billingRouter = require('./routes/billing');
+const revenueRouter = require('./routes/revenue');
+const analyticsRouter = require('./routes/analytics');
 const { sendError } = require('./utils/http');
 
 /** 创建 Express 应用。数据库连接与种子由调用方准备。 */
@@ -18,7 +25,7 @@ function createApp() {
   app.use(express.json());
 
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', service: '城市智慧停车运营管理平台', time: new Date().toISOString() });
+    res.json({ status: 'ok', service: '城市智慧停车运营管理平台 - 车位错峰共享系统', time: new Date().toISOString() });
   });
 
   app.use('/api/auth', authRouter);
@@ -27,6 +34,13 @@ function createApp() {
   app.use('/api/spaces', spacesRouter);
   app.use('/api/vehicles', vehiclesRouter);
   app.use('/api/sessions', sessionsRouter);
+  app.use('/api/organizations', organizationsRouter);
+  app.use('/api/rate-plans', ratePlansRouter);
+  app.use('/api/holidays', holidaysRouter);
+  app.use('/api/ownership-rules', ownershipRulesRouter);
+  app.use('/api/billing', billingRouter);
+  app.use('/api/revenue', revenueRouter);
+  app.use('/api/analytics', analyticsRouter);
 
   app.use((req, res) => sendError(res, 404, '接口不存在'));
 

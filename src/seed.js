@@ -42,15 +42,19 @@ async function seed() {
   await store.createVehicle({ plateNo: '川AD6789', ownerName: '赵丽', phone: '13800000002', vehicleType: 'SMALL', isMember: false });
   await store.createVehicle({ plateNo: '川B88888', ownerName: '物流公司', phone: '13800000003', vehicleType: 'LARGE', isMember: true });
 
-  await store.createSession({
+  const parkedSession = await store.createSession({
     lotId: lot1.id, spaceId: spaceRecs[0].id, plateNo: '川A12345',
     enterTime: '2026-06-16 08:30:00', status: 'PARKED',
   });
+  await store.updateSession(parkedSession.id, { exitTime: '2026-06-16 09:45:00', feeCents: 1200, status: 'FINISHED', paid: true });
+  await store.updateSpace(spaceRecs[0].id, { status: 'FREE' });
+
   const finished = await store.createSession({
     lotId: lot2.id, spaceId: spaceRecs[4].id, plateNo: '川AD6789',
     enterTime: '2026-06-16 07:00:00', status: 'PARKED',
   });
   await store.updateSession(finished.id, { exitTime: '2026-06-16 09:15:00', feeCents: 1500, status: 'FINISHED', paid: true });
+  await store.updateSpace(spaceRecs[4].id, { status: 'FREE' });
 
   return { skipped: false, users: 3, lots: 3, spaces: spaceRecs.length, vehicles: 3, sessions: 2 };
 }

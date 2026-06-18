@@ -2,6 +2,8 @@
 
 const express = require('express');
 const store = require('../data/store');
+const accessController = require('../core/access-controller');
+const revenueService = require('../core/revenue-service');
 const { authRequired, requireRole } = require('../auth');
 const { sendData, sendError, parseId } = require('../utils/http');
 
@@ -27,29 +29,62 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-/** POST /api/sessions/enter —— 车辆入场，开一条停车记录。 */
+/** POST /api/sessions/enter —— 车辆入场，带归属约束校验和车位分配。 */
 router.post('/enter', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
-    const { lotId, plateNo, spaceId } = req.body || {};
+    const { lotId, plateNo, spaceId, enterTime } = req.body || {};
     if (lotId === undefined || !plateNo) return sendError(res, 400, '停车场和车牌号不能为空');
-    if (!(await store.getLotById(Number(lotId)))) return sendError(res, 400, '停车场不存在');
-    const enterTime = req.body.enterTime || new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const s = await store.createSession({ lotId: Number(lotId), plateNo, spaceId: spaceId ?? null, enterTime });
-    return sendData(res, 201, s);
+
+    const entryTime = enterTime ? new Date(enterTime) : new Date();
+    const result = await accessController.processVehicleEntry(
+      Number(lotId),
+      plateNo,
+      spaceId ? Number(spaceId) : null,
+      entryTime
+    );
+
+    if (!result.success) {
+      return sendError(res, 400, result.reason || '入场失败');
+    }
+
+    return sendData(res, 201, result.session, {
+      ownership: result.ownership,
+      isExclusive: result.isExclusive,
+      note: result.note,
+    });
   } catch (e) { return next(e); }
 });
 
-/** POST /api/sessions/:id/exit —— 车辆出场，登记出场时间与（基础）费用。 */
+/** POST /api/sessions/:id/exit —— 车辆出场，自动分段计费和收益归集。 */
 router.post('/:id/exit', requireRole('ADMIN', 'OPERATOR'), async (req, res, next) => {
   try {
     const id = parseId(req.params.id);
     const s = await store.getSessionById(id);
     if (!s) return sendError(res, 404, '停车记录不存在');
     if (s.status !== 'PARKED') return sendError(res, 409, '该记录已结束，不能重复出场');
-    const exitTime = req.body.exitTime || new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const feeCents = req.body.feeCents ?? 0;
-    const updated = await store.updateSession(id, { exitTime, feeCents, status: 'FINISHED' });
-    return sendData(res, 200, updated);
+
+    const exitTime = req.body.exitTime ? new Date(req.body.exitTime) : new Date();
+    const manualFeeCents = req.body.feeCents;
+
+    const result = await accessController.processVehicleExit(id, exitTime);
+
+    if (!result.success) {
+      return sendError(res, 400, result.reason || '出场失败');
+    }
+
+    if (manualFeeCents !== undefined && manualFeeCents !== null) {
+      await store.updateSession(id, { feeCents: Number(manualFeeCents) });
+      result.totalCents = Number(manualFeeCents);
+      result.session.feeCents = Number(manualFeeCents);
+    }
+
+    await revenueService.processSessionForRevenue(id);
+
+    const finalSession = await store.getSessionById(id);
+    return sendData(res, 200, finalSession, {
+      segments: result.segments,
+      totalCents: result.totalCents,
+    });
   } catch (e) { return next(e); }
 });
 
