@@ -76,6 +76,39 @@ async function resetAll() {
   }
 }
 
+/** 强制重建所有表（表结构变更后使用）。 */
+async function rebuildSchema() {
+  const allTables = [
+    'utilization_stats',
+    'shared_transactions',
+    'billing_segments',
+    'transition_events',
+    'space_rule_bindings',
+    'time_ownership_rules',
+    'holidays',
+    'rate_plans',
+    'org_vehicle_whitelist',
+    'contract_organizations',
+    'space_ownership_snapshots',
+    'parking_sessions',
+    'parking_spaces',
+    'vehicles',
+    'parking_lots',
+    'users',
+  ];
+  const conn = await getPool().getConnection();
+  try {
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+    for (const t of allTables) {
+      await conn.query(`DROP TABLE IF EXISTS ${t}`);
+    }
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+  } finally {
+    conn.release();
+  }
+  await ensureSchema();
+}
+
 /** 等待数据库可连接（最多重试若干次），用于启动时等容器就绪。 */
 async function waitForDb(retries = 30, delayMs = 1000) {
   for (let i = 0; i < retries; i += 1) {
@@ -97,4 +130,4 @@ async function close() {
   }
 }
 
-module.exports = { getPool, ensureSchema, resetAll, waitForDb, close, DB_CONFIG };
+module.exports = { getPool, ensureSchema, resetAll, rebuildSchema, waitForDb, close, DB_CONFIG };

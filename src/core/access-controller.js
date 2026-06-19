@@ -61,7 +61,6 @@ async function processVehicleEntry(lotId, plateNo, spaceId = null, entryTime = n
     return { success: false, ...validation };
   }
 
-  const formattedTime = actualEntryTime.toISOString().slice(0, 19).replace('T', ' ');
   const assignedSpaceId = validation.allowed ? validation.spaceId : null;
   const enterRuleId = validation.allowed ? validation.enterRuleId : null;
 
@@ -69,7 +68,7 @@ async function processVehicleEntry(lotId, plateNo, spaceId = null, entryTime = n
     lotId,
     plateNo,
     spaceId: assignedSpaceId,
-    enterTime: formattedTime,
+    enterTime: actualEntryTime,
     enterRuleId,
     status: 'PARKED',
   });
@@ -109,7 +108,6 @@ async function processVehicleExit(sessionId, exitTime = null) {
   }
 
   const actualExitTime = exitTime || new Date();
-  const formattedTime = actualExitTime.toISOString().slice(0, 19).replace('T', ' ');
 
   let segments = [];
   let totalCents = 0;
@@ -125,7 +123,7 @@ async function processVehicleExit(sessionId, exitTime = null) {
   }
 
   const updatedSession = await store.updateSession(sessionId, {
-    exitTime: formattedTime,
+    exitTime: actualExitTime,
     feeCents: totalCents,
     status: 'FINISHED',
   });

@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS transition_events (
 CREATE TABLE IF NOT EXISTS billing_segments (
   id           INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   session_id   INT UNSIGNED NOT NULL,
-  rule_id      INT UNSIGNED NOT NULL,
+  rule_id      INT UNSIGNED NULL,
   segment_start DATETIME(3) NOT NULL,
   segment_end  DATETIME(3) NOT NULL,
   duration_min INT NOT NULL,
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS billing_segments (
   is_overtime  TINYINT(1) NOT NULL DEFAULT 0,
   created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_segment_session FOREIGN KEY (session_id) REFERENCES parking_sessions(id) ON DELETE CASCADE,
-  CONSTRAINT fk_segment_rule FOREIGN KEY (rule_id) REFERENCES time_ownership_rules(id),
+  CONSTRAINT fk_segment_rule FOREIGN KEY (rule_id) REFERENCES time_ownership_rules(id) ON DELETE SET NULL,
   INDEX idx_segment_session (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

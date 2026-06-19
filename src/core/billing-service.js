@@ -1,6 +1,7 @@
 'use strict';
 
 const store = require('../data/store');
+const { getPool } = require('../db');
 const scheduler = require('./ownership-scheduler');
 const transitionHandler = require('./transition-handler');
 
@@ -219,18 +220,16 @@ async function saveBillingSegments(sessionId, customExitTime = null) {
   await store.deleteSegmentsForSession(sessionId);
 
   for (const segment of segments) {
-    if (segment.ruleId) {
-      await store.createBillingSegment({
-        sessionId,
-        ruleId: segment.ruleId,
-        segmentStart: segment.segmentStart,
-        segmentEnd: segment.segmentEnd,
-        durationMin: segment.durationMin,
-        rateCents: segment.rateCents,
-        amountCents: segment.amountCents,
-        isOvertime: segment.isOvertime,
-      });
-    }
+    await store.createBillingSegment({
+      sessionId,
+      ruleId: segment.ruleId,
+      segmentStart: segment.segmentStart,
+      segmentEnd: segment.segmentEnd,
+      durationMin: segment.durationMin,
+      rateCents: segment.rateCents,
+      amountCents: segment.amountCents,
+      isOvertime: segment.isOvertime,
+    });
   }
 
   return { segments, totalCents };
@@ -283,7 +282,7 @@ async function getBillingSummaryByDate(date, lotId = null) {
 
   let sessions = [];
   if (spaceIds.length > 0) {
-    const [rows] = await store.getPool().query(
+    const [rows] = await getPool().query(
       `SELECT * FROM parking_sessions 
        WHERE space_id IN (${spaceIds.map(() => '?').join(',')})
          AND exit_time >= ? AND enter_time <= ?
