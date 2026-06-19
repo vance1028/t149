@@ -89,23 +89,42 @@ async function buildTimeSegments(spaceId, startTime, endTime) {
   return segments;
 }
 
+const DEFAULT_HOURLY_RATE_CENTS = 500; // 默认共享费率：5元/小时
+const DEFAULT_FREE_MINUTES = 15; // 默认免费时长：15分钟
+
 async function calculateSegmentFee(segment, session, overtimeMultiplier = 1.0) {
   if (!segment.ruleId) {
+    const billableMinutes = Math.max(0, segment.durationMin - DEFAULT_FREE_MINUTES);
+    const hourlyRate = DEFAULT_HOURLY_RATE_CENTS * overtimeMultiplier;
+    const billableHours = billableMinutes / 60;
+    const amountCents = Math.round(hourlyRate * billableHours);
+
     return {
       ...segment,
-      rateCents: 0,
-      amountCents: 0,
+      rateCents: Math.round(hourlyRate),
+      amountCents,
       isOvertime: overtimeMultiplier > 1.0,
+      billableMinutes,
+      freeMinutes: DEFAULT_FREE_MINUTES,
+      note: '默认共享费率（未绑定规则）',
     };
   }
 
   const ratePlan = await getRatePlanForRule(segment.ruleId);
   if (!ratePlan) {
+    const billableMinutes = Math.max(0, segment.durationMin - DEFAULT_FREE_MINUTES);
+    const hourlyRate = DEFAULT_HOURLY_RATE_CENTS * overtimeMultiplier;
+    const billableHours = billableMinutes / 60;
+    const amountCents = Math.round(hourlyRate * billableHours);
+
     return {
       ...segment,
-      rateCents: 0,
-      amountCents: 0,
+      rateCents: Math.round(hourlyRate),
+      amountCents,
       isOvertime: overtimeMultiplier > 1.0,
+      billableMinutes,
+      freeMinutes: DEFAULT_FREE_MINUTES,
+      note: '默认共享费率（费率方案不存在）',
     };
   }
 
@@ -149,11 +168,11 @@ async function calculateSegmentFee(segment, session, overtimeMultiplier = 1.0) {
   };
 }
 
-async function calculateBillingSegments(sessionId) {
+async function calculateBillingSegments(sessionId, customExitTime = null) {
   const session = await store.getSessionById(sessionId);
   if (!session) return { segments: [], totalCents: 0 };
 
-  const endTime = session.exitTime ? new Date(session.exitTime) : new Date();
+  const endTime = customExitTime || (session.exitTime ? new Date(session.exitTime) : new Date());
   const startTime = new Date(session.enterTime);
 
   if (!session.spaceId) {
@@ -174,15 +193,15 @@ async function calculateBillingSegments(sessionId) {
   }
 
   const segments = await buildTimeSegments(session.spaceId, startTime, endTime);
-  const overtimeMultiplier = session.exitTime
-    ? await transitionHandler.calculateOvertimeMultiplier(sessionId, new Date(session.exitTime))
+  const overtimeMultiplier = customExitTime || session.exitTime
+    ? await transitionHandler.calculateOvertimeMultiplier(sessionId, endTime)
     : 1.0;
 
   const calculatedSegments = [];
   let totalCents = 0;
 
   for (const segment of segments) {
-    const segmentOvertimeMultiplier = segment.segmentEnd > (session.exitTime || new Date())
+    const segmentOvertimeMultiplier = segment.segmentEnd > endTime
       ? overtimeMultiplier
       : 1.0;
 
@@ -194,8 +213,8 @@ async function calculateBillingSegments(sessionId) {
   return { segments: calculatedSegments, totalCents };
 }
 
-async function saveBillingSegments(sessionId) {
-  const { segments, totalCents } = await calculateBillingSegments(sessionId);
+async function saveBillingSegments(sessionId, customExitTime = null) {
+  const { segments, totalCents } = await calculateBillingSegments(sessionId, customExitTime);
 
   await store.deleteSegmentsForSession(sessionId);
 
@@ -217,8 +236,8 @@ async function saveBillingSegments(sessionId) {
   return { segments, totalCents };
 }
 
-async function recalculateSessionFee(sessionId) {
-  const { segments, totalCents } = await saveBillingSegments(sessionId);
+async function recalculateSessionFee(sessionId, customExitTime = null) {
+  const { segments, totalCents } = await saveBillingSegments(sessionId, customExitTime);
   await store.updateSession(sessionId, { feeCents: totalCents });
   return { segments, totalCents };
 }
@@ -227,21 +246,27 @@ async function getSessionBillingDetails(sessionId) {
   const session = await store.getSessionById(sessionId);
   if (!session) return null;
 
-  const segments = await store.getSegmentsForSession(sessionId);
+  let segments = await store.getSegmentsForSession(sessionId);
   const hasSegments = segments.length > 0;
 
   let calculated;
   if (!hasSegments) {
     calculated = await calculateBillingSegments(sessionId);
-  } else {
-    const totalCents = segments.reduce((sum, s) => sum + s.amountCents, 0);
-    calculated = { segments, totalCents };
+    segments = calculated.segments;
   }
+
+  const totalCents = hasSegments
+    ? segments.reduce((sum, s) => sum + s.amountCents, 0)
+    : calculated.totalCents;
+
+  const finalTotalCents = session.feeCents !== null && session.feeCents !== undefined
+    ? session.feeCents
+    : totalCents;
 
   return {
     session,
-    segments: calculated.segments,
-    totalCents: calculated.totalCents,
+    segments,
+    totalCents: finalTotalCents,
     saved: hasSegments,
   };
 }
@@ -256,13 +281,17 @@ async function getBillingSummaryByDate(date, lotId = null) {
   const spaces = await store.listSpaces(filter);
   const spaceIds = spaces.map(s => s.id);
 
-  const [sessions] = await store.getPool().query(
-    `SELECT * FROM parking_sessions 
-     WHERE space_id IN (${spaceIds.map(() => '?').join(',')})
-       AND exit_time >= ? AND enter_time <= ?
-       AND status = 'FINISHED'`,
-    [...spaceIds, startOfDay, endOfDay]
-  );
+  let sessions = [];
+  if (spaceIds.length > 0) {
+    const [rows] = await store.getPool().query(
+      `SELECT * FROM parking_sessions 
+       WHERE space_id IN (${spaceIds.map(() => '?').join(',')})
+         AND exit_time >= ? AND enter_time <= ?
+         AND status = 'FINISHED'`,
+      [...spaceIds, startOfDay, endOfDay]
+    );
+    sessions = rows;
+  }
 
   const summary = {
     date: dateStr,
@@ -285,12 +314,19 @@ async function getBillingSummaryByDate(date, lotId = null) {
     };
   }
 
+  let exclusiveSessionCount = 0;
+
   for (const session of sessions) {
     const details = await getSessionBillingDetails(session.id);
     if (!details) continue;
 
     summary.totalMinutes += details.segments.reduce((sum, s) => sum + s.durationMin, 0);
     summary.totalCents += details.totalCents;
+
+    const hasExclusiveSegment = details.segments.some(seg => seg.ownershipType === 'EXCLUSIVE');
+    if (hasExclusiveSegment) {
+      exclusiveSessionCount++;
+    }
 
     for (const segment of details.segments) {
       const type = segment.ownershipType || 'SHARED';
@@ -310,11 +346,8 @@ async function getBillingSummaryByDate(date, lotId = null) {
     }
   }
 
-  summary.byOwnershipType.EXCLUSIVE.sessions = sessions.filter(s => {
-    const details = getSessionBillingDetails(s.id);
-    return details?.segments?.some(seg => seg.ownershipType === 'EXCLUSIVE');
-  }).length;
-  summary.byOwnershipType.SHARED.sessions = summary.totalSessions - summary.byOwnershipType.EXCLUSIVE.sessions;
+  summary.byOwnershipType.EXCLUSIVE.sessions = exclusiveSessionCount;
+  summary.byOwnershipType.SHARED.sessions = summary.totalSessions - exclusiveSessionCount;
 
   return summary;
 }

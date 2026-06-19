@@ -5,6 +5,7 @@ const scheduler = require('./ownership-scheduler');
 const billingService = require('./billing-service');
 
 function formatDate(date) {
+  if (typeof date === 'string') return date.slice(0, 10);
   return date.toISOString().slice(0, 10);
 }
 
@@ -28,7 +29,7 @@ async function calculateSpaceDailyUtilization(spaceId, statDate) {
   const exclusiveMinutes = { total: 0, occupied: 0, sessions: 0 };
   const sharedMinutes = { total: 0, occupied: 0, sessions: 0 };
 
-  const segments = await store.getPool().query(
+  const [segmentRows] = await store.getPool().query(
     `SELECT bs.*, tor.ownership_type 
      FROM billing_segments bs
      JOIN time_ownership_rules tor ON bs.rule_id = tor.id
@@ -36,8 +37,6 @@ async function calculateSpaceDailyUtilization(spaceId, statDate) {
        AND bs.segment_start >= ? AND bs.segment_end <= ?`,
     [spaceId, dayStart, dayEnd]
   );
-
-  const segmentRows = segments[0] || [];
 
   for (const seg of segmentRows) {
     const type = seg.ownership_type || 'SHARED';
@@ -277,12 +276,14 @@ async function getOwnershipEfficiencyReport(orgId, fromDate, toDate) {
   const orgRules = await store.listOwnershipRules({ orgId, status: 'ACTIVE' });
   const ruleIds = orgRules.map(r => r.id);
 
-  const [bindings] = await store.getPool().query(
-    'SELECT DISTINCT space_id FROM space_rule_bindings WHERE rule_id IN (?)',
-    [ruleIds]
-  );
-
-  const orgSpaceIds = bindings.map(b => b.space_id);
+  let orgSpaceIds = [];
+  if (ruleIds.length > 0) {
+    const [bindings] = await store.getPool().query(
+      'SELECT DISTINCT space_id FROM space_rule_bindings WHERE rule_id IN (?)',
+      [ruleIds]
+    );
+    orgSpaceIds = bindings.map(b => b.space_id);
+  }
 
   const reports = [];
   for (const spaceId of orgSpaceIds) {

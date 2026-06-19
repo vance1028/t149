@@ -22,10 +22,10 @@ async function calculateRevenueShare(sessionId) {
     return null;
   }
 
-  const segments = await store.getSegmentsForSession(sessionId);
+  let segments = await store.getSegmentsForSession(sessionId);
   if (segments.length === 0) {
     const result = await billingService.saveBillingSegments(sessionId);
-    segments.push(...result.segments);
+    segments = result.segments;
   }
 
   const ruleGroupedSegments = new Map();
@@ -95,6 +95,7 @@ async function createSharedTransactionForSession(sessionId) {
   const results = [];
   for (const tx of revenue.transactions) {
     if (tx.totalAmountCents <= 0) continue;
+    if (tx.ruleId === null) continue; // 默认费率，无规则绑定，跳过分成记录
 
     const existing = await store.listSharedTransactions({ sessionId, ruleId: tx.ruleId });
     if (existing.length > 0) continue;

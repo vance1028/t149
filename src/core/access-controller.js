@@ -115,7 +115,7 @@ async function processVehicleExit(sessionId, exitTime = null) {
   let totalCents = 0;
 
   try {
-    const result = await billingService.recalculateSessionFee(sessionId);
+    const result = await billingService.recalculateSessionFee(sessionId, actualExitTime);
     segments = result.segments;
     totalCents = result.totalCents;
   } catch (e) {
